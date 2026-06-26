@@ -6,6 +6,7 @@ import { memberInvite, captainInvite, joinLink } from "@/lib/invites";
 import { InviteCard } from "@/components/InviteCard";
 import { CopyButton } from "@/components/CopyButton";
 import { addMember } from "./actions";
+import { startGame } from "@/app/play/actions";
 import type { Group, Member, Team } from "@/lib/types";
 
 function appUrl(): string {
@@ -32,22 +33,42 @@ export default async function GroupPage({
   if (!groupData) notFound();
   const group = groupData as Group;
 
-  const [{ data: memberData }, { data: teamData }] = await Promise.all([
+  const [
+    { data: memberData },
+    { data: teamData },
+    { count: topicCount },
+    { count: assignCount },
+    { count: triviaCount },
+  ] = await Promise.all([
     supabase.from("members").select("*").eq("group_id", id).order("created_at"),
     supabase.from("teams").select("*").eq("group_id", id).order("team_index"),
+    supabase
+      .from("trivia_topics")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", id)
+      .eq("selected", true),
+    supabase
+      .from("feud_question_assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", id),
+    supabase
+      .from("trivia_questions")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", id),
   ]);
   const members = (memberData ?? []) as Member[];
   const teams = (teamData ?? []) as Team[];
 
-  const captainsSet = teams.every((t) => t.captain_member_id);
+  const captainsSet = teams.length > 0 && teams.every((t) => t.captain_member_id);
   const link = joinLink(group, appUrl());
+  const hostReady = (assignCount ?? 0) > 0 && (triviaCount ?? 0) > 0;
 
   const readiness = [
     { label: `Roster (${members.length} players)`, done: members.length >= 2, soon: false },
     { label: "Teams & captains assigned", done: captainsSet, soon: false },
-    { label: "Captains picked trivia topics", done: false, soon: true },
-    { label: "Members filled out feud questions", done: false, soon: true },
-    { label: "Trivia bank generated", done: false, soon: true },
+    { label: "Captains picked trivia topics", done: (topicCount ?? 0) > 0, soon: (topicCount ?? 0) === 0 },
+    { label: "Members filled out feud questions", done: (assignCount ?? 0) > 0, soon: (assignCount ?? 0) === 0 },
+    { label: "Trivia bank generated", done: (triviaCount ?? 0) > 0, soon: (triviaCount ?? 0) === 0 },
   ];
 
   return (
@@ -170,23 +191,38 @@ export default async function GroupPage({
             </form>
           </section>
 
-          {/* next steps */}
+          {/* host */}
           <section className="card p-5">
-            <h2 className="font-display text-lg font-bold">Next steps</h2>
-            <p className="mt-1 text-sm text-cream/55">
-              These unlock as the build progresses. Setup tasks come next.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="btn btn-ghost cursor-not-allowed opacity-50">
-                Feud questions · up next
-              </span>
-              <span className="btn btn-ghost cursor-not-allowed opacity-50">
-                Trivia topics · up next
-              </span>
-              <span className="btn btn-ghost cursor-not-allowed opacity-50">
-                Host live game · up next
-              </span>
-            </div>
+            <h2 className="font-display text-lg font-bold">Host the live game</h2>
+            {hostReady ? (
+              <>
+                <p className="mt-1 text-sm text-cream/55">
+                  Mirror your screen to the TV and run it from here. Feud is 25s per guess; trivia
+                  is 3.5 min per question.
+                </p>
+                <form action={startGame} className="mt-4 flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="groupId" value={group.id} />
+                  <div>
+                    <label className="label" htmlFor="rounds">
+                      Rounds
+                    </label>
+                    <select id="rounds" name="rounds" defaultValue="1" className="input mt-1 w-auto">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="btn btn-primary text-lg">
+                    ▶ Host live game
+                  </button>
+                </form>
+              </>
+            ) : (
+              <p className="mt-1 text-sm text-cream/55">
+                Finish setup first — you need filled-out feud questions and a trivia bank. (Tip: the
+                demo group comes fully loaded and is ready to host immediately.)
+              </p>
+            )}
           </section>
         </div>
 
