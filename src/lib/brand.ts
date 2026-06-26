@@ -8,10 +8,12 @@
 // ============================================================================
 
 export const BRAND = {
-  name: "Says Who?",
-  tagline: "The party game where your crew is the survey.",
+  name: "Tallyho",
+  tagline: "Round up your crew and tally the truth.",
   // The fixed mechanic. Reveal copy is built from this everywhere.
   revealVerb: "says",
+  // Celebratory shout used on big reveals.
+  cheer: "Tally-ho!",
   hostVoice:
     "Cheeky, hype, and warm — a game-show host who's also clearly one of the group.",
 } as const;
@@ -40,7 +42,7 @@ export const PALETTE = {
 // ---------------------------------------------------------------------------
 export const TAGLINES = {
   feudBigHit: [
-    "The people have spoken.",
+    "Tally-ho — the people have spoken!",
     "Big board, big feelings.",
     "You read that room like a book.",
     "That's a top-shelf answer.",
