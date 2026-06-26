@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { CATEGORY_LABELS } from "@/lib/brand";
+import { seedDemoGroup } from "./actions";
 import type { Group } from "@/lib/types";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -33,9 +34,16 @@ export default async function DashboardPage() {
             Build a group, gather answers, then host the live game.
           </p>
         </div>
-        <Link href="/dashboard/new" className="btn btn-primary whitespace-nowrap">
-          + New group
-        </Link>
+        <div className="flex items-center gap-2">
+          <form action={seedDemoGroup}>
+            <button type="submit" className="btn btn-ghost whitespace-nowrap">
+              🎲 Demo group
+            </button>
+          </form>
+          <Link href="/dashboard/new" className="btn btn-primary whitespace-nowrap">
+            + New group
+          </Link>
+        </div>
       </div>
 
       {groups.length === 0 ? (
@@ -49,6 +57,15 @@ export default async function DashboardPage() {
           <Link href="/dashboard/new" className="btn btn-primary mt-6">
             Create your first group →
           </Link>
+          <form action={seedDemoGroup} className="mt-3">
+            <button type="submit" className="btn btn-ghost">
+              or spin up a demo group 🎲
+            </button>
+          </form>
+          <p className="mt-2 text-xs text-cream/40">
+            The demo fakes a full filled-out group so you can play the live game right now —
+            no API key needed.
+          </p>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
