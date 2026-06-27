@@ -50,3 +50,59 @@ export async function addMember(formData: FormData) {
 
   revalidatePath(`/dashboard/g/${groupId}`);
 }
+
+/** Move a player to a different team. They drop captaincy on the move (the old
+ *  team's captain slot is cleared if it was them); reassign with setCaptain. */
+export async function moveMember(input: { groupId: string; memberId: string; teamId: string }) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: m } = await supabase
+    .from("members")
+    .select("team_id")
+    .eq("id", input.memberId)
+    .single();
+
+  await supabase
+    .from("members")
+    .update({ team_id: input.teamId, is_captain: false })
+    .eq("id", input.memberId);
+
+  if (m?.team_id) {
+    await supabase
+      .from("teams")
+      .update({ captain_member_id: null })
+      .eq("id", m.team_id)
+      .eq("captain_member_id", input.memberId);
+  }
+
+  revalidatePath(`/dashboard/g/${input.groupId}`);
+}
+
+/** Make a player the captain of their team (replaces the team's current captain). */
+export async function setCaptain(input: { groupId: string; memberId: string }) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: m } = await supabase
+    .from("members")
+    .select("team_id")
+    .eq("id", input.memberId)
+    .single();
+  if (!m?.team_id) return;
+
+  await supabase.from("members").update({ is_captain: false }).eq("team_id", m.team_id);
+  await supabase.from("members").update({ is_captain: true }).eq("id", input.memberId);
+  await supabase
+    .from("teams")
+    .update({ captain_member_id: input.memberId })
+    .eq("id", m.team_id);
+
+  revalidatePath(`/dashboard/g/${input.groupId}`);
+}

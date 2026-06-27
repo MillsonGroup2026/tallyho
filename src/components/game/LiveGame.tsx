@@ -127,7 +127,10 @@ export function LiveGame(p: LiveGamePayload) {
   function continueToTrivia() {
     if (!turn) return;
     const bank = p.triviaByTeam[turn.teamId] ?? [];
-    const next = bank.find((q) => !usedTrivia.has(q.id));
+    // Prefer an unused question; if the bank is exhausted (e.g. multi-round),
+    // reuse one so every turn still gets a trivia question.
+    let next = bank.find((q) => !usedTrivia.has(q.id));
+    if (!next && bank.length > 0) next = bank[Math.floor(Math.random() * bank.length)];
     if (!next) {
       nextTurn();
       return;

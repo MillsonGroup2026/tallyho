@@ -5,6 +5,7 @@ import { CATEGORY_LABELS } from "@/lib/brand";
 import { memberInvite, captainInvite, joinLink } from "@/lib/invites";
 import { InviteCard } from "@/components/InviteCard";
 import { CopyButton } from "@/components/CopyButton";
+import { RosterEditor } from "@/components/RosterEditor";
 import { addMember } from "./actions";
 import { startGame } from "@/app/play/actions";
 import type { Group, Member, Team } from "@/lib/types";
@@ -137,29 +138,10 @@ export default async function GroupPage({
               <h2 className="font-display text-lg font-bold">Roster</h2>
               <span className="text-sm text-cream/50">{members.length} players</span>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {teams.map((team) => {
-                const teamMembers = members.filter((m) => m.team_id === team.id);
-                return (
-                  <div key={team.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="font-display font-bold">{team.name}</h3>
-                    <ul className="mt-2 space-y-1 text-sm">
-                      {teamMembers.length === 0 && (
-                        <li className="text-cream/40">No players yet</li>
-                      )}
-                      {teamMembers.map((m) => (
-                        <li key={m.id} className="flex items-center gap-2">
-                          <span>{m.display_name}</span>
-                          {(m.is_captain || team.captain_member_id === m.id) && (
-                            <span className="chip cursor-default text-xs">🎖️ captain</span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
+            <p className="mt-1 text-xs text-cream/45">
+              Use the dropdown to move a player; tap ★ to make someone captain.
+            </p>
+            <RosterEditor groupId={group.id} members={members} teams={teams} />
 
             {/* add member */}
             <form action={addMember} className="mt-4 flex flex-wrap items-end gap-2">
@@ -210,6 +192,8 @@ export default async function GroupPage({
                       <option value="1">1</option>
                       <option value="2">2</option>
                       <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
                     </select>
                   </div>
                   <button type="submit" className="btn btn-primary text-lg">
