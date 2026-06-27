@@ -132,6 +132,25 @@ export default async function GroupPage({
             </ul>
           </section>
 
+          {/* setup tasks */}
+          <section className="card p-5">
+            <h2 className="font-display text-lg font-bold">Build the game</h2>
+            <p className="mt-1 text-sm text-cream/55">
+              Author the feud questions your crew answers about each other (trivia topics next).
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={`/dashboard/g/${group.id}/questions`}
+                className="btn btn-secondary text-sm"
+              >
+                ✏️ Feud questions
+              </Link>
+              <span className="btn btn-ghost cursor-not-allowed text-sm opacity-50">
+                📚 Trivia topics · up next
+              </span>
+            </div>
+          </section>
+
           {/* roster by team */}
           <section className="card p-5">
             <div className="flex items-center justify-between">
