@@ -1,199 +1,145 @@
-# Says Who? 🎤
+# Tallyho 🎤
 
-A web-based party game in the spirit of Family Feud, but the survey population is
-**your own group**. Every reveal lands as **"_[Group Name]_ says…"** — for a group
-called _Mile High_, the screen says **"Mile High says…"**. That dynamic naming is the
-fixed brand mechanic; everything else (the name _Says Who?_, the palette, the host
-voice) is the creative spin.
+**A Family-Feud-style party game built around your own crew.** Instead of "Survey
+says…", every reveal lands as **"_[Group Name]_ says…"** — for a group called
+_Mile High_, the host screen shouts **"Mile High says…"**. That dynamic naming is
+the one fixed brand element; everything else is Tallyho's own spin.
 
-Each game blends two streams:
+- **Live:** https://tallyho-b24j.onrender.com
+- **Two streams of play:** a **Feud** round (guess what your group collectively
+  said about each other) and a **Team Trivia** round (topics your captains pick).
 
-1. **Feud round** — players guess what their own group collectively answered about each
-   other ("Who's most likely to…", "How would Nick react when…"). Points = how many group
-   members gave that same answer.
-2. **Team trivia round** — teams answer real trivia in topics their captains pre-selected.
+---
+
+## How it plays
+
+1. **Host** creates a group, adds the roster, picks a vibe + a "good to know" note.
+2. Tallyho generates a **private portal** with a share code. Members answer feud
+   questions from their phones; captains pick 5 trivia topics. (Self-service
+   fill-out is **Phase 1 remaining** — see status below. The **demo** seeds all
+   of this instantly.)
+3. **Host** mirrors their phone to the TV and runs the live game on one device:
+   alternating teams, a 25s feud guess per player, a 3.5-min trivia question per
+   team, calibrated scoring, and the **"[Group] says…"** reveal with the full
+   vote breakdown.
+
+### The fresh-question guarantee
+Each player faces a feud question **they personally didn't answer** but the rest
+of the group did — so there's a real tally to guess against. We over-generate
+questions (`M = ceil(N*1.5) + 3`), hold one out per member, and filter out
+low-consensus questions (top answer must hold ≥ ⅓ of the votes).
 
 ---
 
 ## Tech stack
 
-| Layer            | Choice                                                            |
-| ---------------- | ----------------------------------------------------------------- |
-| Framework        | Next.js 16 (App Router) + TypeScript                              |
-| Styling          | Tailwind CSS v4 (CSS-first `@theme` tokens)                       |
-| DB / realtime    | Supabase (Postgres + Realtime)                                    |
-| Auth             | Supabase Auth (email/password; magic-link-ready)                  |
-| AI               | Anthropic API (`claude-sonnet-4-6`), **server-side only**         |
-| Hosting          | Render (web service) — see `render.yaml`                          |
+| Layer | Choice |
+|---|---|
+| Framework | Next.js 16 (App Router) + React 19 + TypeScript |
+| Styling | Tailwind CSS v4 (custom design tokens in `globals.css`) |
+| DB / Auth / Realtime | Supabase (Postgres, RLS, Realtime) |
+| AI | Anthropic API (`claude-sonnet-4-6`), **server-side only**, with deterministic fallbacks |
+| Hosting | Render (web service, auto-deploy from `main`) |
 
-All AI and data logic runs in **server-side route handlers**. The Anthropic key and the
-Supabase service-role key are never exposed to the browser and never committed.
-
----
-
-## Two operating modes
-
-- **Mode A — Pre-game, multi-device (self-service).** Each member fills out their
-  questions from their own phone via a share link + group code. Captains pick topics from
-  their phones. The admin watches progress fill in live (Supabase Realtime).
-- **Mode B — Live game, single-device.** The live game runs entirely on the admin's
-  phone, typically screen-mirrored to a TV. No remote answering during play.
-
-Multi-device sync only matters **before** the game starts.
+**Security model:** Members/captains never authenticate. RLS lets only the admin
+(`created_by = auth.uid()`) touch their data directly. Member/captain devices hit
+server route handlers that validate the `join_code` and act via the service-role
+key. The Anthropic key and service-role key are server-only (no `NEXT_PUBLIC_`).
 
 ---
 
 ## Local development
 
-### Prerequisites
-
-- Node 22+
-- A Supabase project (free tier is fine)
-- An Anthropic API key (optional for the demo — see [Seed/demo mode](#seeddemo-mode))
-
-### 1. Install
-
 ```bash
+git clone https://github.com/MillsonGroup2026/tallyho
+cd tallyho
 npm install
+cp .env.example .env.local   # then fill in the values below
+npm run dev                  # http://localhost:3000
 ```
 
-### 2. Configure environment
+### Environment variables
 
-```bash
-cp .env.example .env.local
-```
+| Var | Where | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | client + server | safe to expose |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | safe to expose (RLS-protected) |
+| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | bypasses RLS — never expose |
+| `ANTHROPIC_API_KEY` | **server only** | optional; app uses deterministic fallbacks if absent |
+| `ANTHROPIC_MODEL` | server | defaults to `claude-sonnet-4-6` |
+| `NEXT_PUBLIC_APP_URL` | client + server | builds invite links |
 
-Fill in the values (see [Environment variables](#environment-variables)).
+### Database setup
+Run `supabase/migrations/0001_init.sql` against your Supabase project — in the
+**SQL Editor**, via `supabase db push`, or the Management API. It creates 11
+tables, RLS policies on all of them, and adds the live tables to the
+`supabase_realtime` publication. For frictionless signup, enable **auto-confirm**
+in Auth settings (already on for the hosted project).
 
-### 3. Set up the database
-
-Open your Supabase project's **SQL editor** and run the migration:
-
-```
-supabase/migrations/0001_init.sql
-```
-
-(Or, with the Supabase CLI: `supabase db push`.) This creates all tables, row-level
-security policies, and the realtime publication.
-
-### 4. Run
-
-```bash
-npm run dev
-```
-
-Visit http://localhost:3000.
-
-> **Tip:** run `npm run build` locally before deploying — a failed build on Render keeps
-> the previous version live, so catching it locally saves a bad deploy.
+### Try it instantly
+Sign up, then click **"Spin up a demo group"** — it seeds a complete, filled-out
+group (_Mile High_: 9 members, 2 teams, captains, feud questions + responses, a
+balanced trivia bank) with **no API key required**, so you can host a full game
+immediately.
 
 ---
 
-## Environment variables
+## Deploy (Render)
 
-| Variable                        | Exposed to browser? | Purpose                                            |
-| ------------------------------- | ------------------- | -------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | ✅ (safe)           | Supabase project URL                               |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ (safe, RLS)      | Supabase anon key (public by design)               |
-| `SUPABASE_SERVICE_ROLE_KEY`     | ❌ **server-only**  | Bypasses RLS; used by member-facing route handlers |
-| `ANTHROPIC_API_KEY`             | ❌ **server-only**  | Anthropic API key                                  |
-| `ANTHROPIC_MODEL`               | server              | Model id (default `claude-sonnet-4-6`)             |
-| `NEXT_PUBLIC_APP_URL`           | ✅                  | Base URL used to build share links                 |
-
-The two server-only keys have **no** `NEXT_PUBLIC_` prefix, so Next.js will never bundle
-them into client code.
-
----
-
-## Security / access model
-
-Members and captains **don't have accounts**. Row Level Security restricts direct DB
-access to the admin who owns a group (`groups.created_by = auth.uid()`). Member/captain
-devices talk to **server route handlers** that validate the group's `join_code` and then
-act via the **service-role** client (which bypasses RLS). Anon clients never touch the
-database directly.
-
----
-
-## Seed/demo mode
-
-_(M4 — coming in this build.)_ A one-click, **deterministic, offline** demo creates a full
-group (members, teams, captains, chosen topics, filled-out feud responses, and a generated
-trivia bank) so you can play the live game instantly without rounding up real people or
-even setting an API key.
+The hosted service (free plan, region `oregon`) builds from this repo's `main`
+with `npm install && npm run build` / `npm run start` and auto-deploys on push.
+`render.yaml` is included as a Blueprint. Set the env vars above in the Render
+dashboard — the `NEXT_PUBLIC_*` ones are baked at **build** time, so changing them
+requires a rebuild (clear cache).
 
 ---
 
 ## Scoring calibration
 
-_(M8 — documented here once implemented.)_ Feud points are bounded by group size (1 to
-N−1). Trivia point values are derived from the group's feud expected-value so that one
-round's feud potential ≈ one round's trivia potential per team, and the two teams carry
-equal total trivia value per round. The calibration constant is stored on the group and is
-tunable.
-
----
-
-## Deploy to Render
-
-1. Push this repo to GitHub.
-2. In Render: **New → Blueprint**, point it at the repo (it reads `render.yaml`).
-3. Set the `sync: false` secrets in the Render dashboard:
-   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `NEXT_PUBLIC_APP_URL`.
-4. Deploy. The build runs `npm install && npm run build`; the service starts with
-   `npm run start`.
-
----
-
-## Project structure
+Feud points are bounded by group size: an answer is worth the number of members
+who gave it (`1…N-1`). To keep trivia balanced against feud, we derive a
+**calibration constant** from the group's own answer distributions rather than
+hard-coding difficulty:
 
 ```
-src/
-  app/                 # routes (App Router)
-  components/          # shared UI (Wordmark, SaysReveal, …)
-  lib/
-    brand.ts           # name, palette, tagline pool, saysLine()
-    types.ts           # domain types (mirror of the schema)
-    utils.ts           # cn(), join codes, shuffle/partition
-    supabase/
-      server.ts        # admin's authed SSR client (RLS applies)
-      client.ts        # browser client for Realtime
-      admin.ts         # service-role client (server-only)
-    ai/
-      anthropic.ts     # server-only AI plumbing + graceful fallbacks
-supabase/
-  migrations/          # SQL schema + RLS + realtime
+constant ≈ average top-bucket size across usable feud questions   (floor 2)
+trivia point value = constant   → uniform, so both teams' per-round totals are equal
 ```
+
+One round's feud potential ≈ its trivia potential per team. The constant is
+stored on `groups.calibration_constant` and is tunable. See `src/lib/scoring.ts`.
 
 ---
 
-## Phase 2 hooks (scaffolded, not built)
+## Phase 1 status
 
-Clear extension points are marked with `PHASE 2` comments in code:
+| Area | State |
+|---|---|
+| Foundation, design system, schema | ✅ |
+| Admin auth | ✅ |
+| Group creation wizard + portal | ✅ |
+| Seed/demo mode (offline) | ✅ |
+| **Live game loop** (feud + trivia, reveals, scoreboard, pause/resume, timers) | ✅ |
+| Self-service captain topics + member fill-out + realtime dashboard | ⏳ |
+| AI engines (recommender, topic suggester, trivia generator, normalizer, clusterer, taglines) | ⏳ |
+| Live fresh-question pipeline (consensus filter, holdout assignment, top-up) | ⏳ (logic exists; drives the seed today) |
 
-- **Illustrated avatars** — `members.avatar_seed` column; seed composed from how each
-  person answered. Compose from a free SVG trait kit (no image-gen cost).
-- **Team crests** — `teams.crest_seed` column; AI-generated crest from the team name.
-- **Learning recommender** — feud recommendations that improve from this group's history
-  (which questions were used/skipped). Hook in the feud recommender route.
-- **Richer animations / sound / character reactions** — reveal components are isolated so
-  they can be upgraded without touching game logic.
+The **playable vertical slice is live**: create/seed a group → host → full round
+of feud + trivia with scoring and the "[Group] says…" reveals.
 
 ---
 
-## Build status
+## Phase 2 hook locations
 
-Phase 1 milestones (see the in-repo task list):
+Phase 2 is scaffolded, not built. Clear extension points:
 
-- [x] M1 — Foundation (schema, clients, design system, landing)
-- [ ] M2 — Admin auth
-- [ ] M3 — Group creation wizard
-- [ ] M4 — Seed/demo mode
-- [ ] M5 — Captain topics + member fill-out
-- [ ] M6 — Fresh-question guarantee
-- [ ] M7 — Trivia bank
-- [ ] M8 — Scoring calibration
-- [ ] M9 — Live game loop
-- [ ] M10 — Readiness + deploy/docs
-```
+- **Illustrated avatars / team crests** — `members.avatar_seed` and
+  `teams.crest_seed` columns are ready; seed them from how each person answered.
+- **AI engines** — `src/lib/ai/anthropic.ts` exposes `generateJSON` /
+  `generateText` with graceful fallbacks; each engine is a thin server module.
+- **Answer matching** — `src/lib/match.ts` (deterministic) is the fallback the
+  AI Answer Normalizer wraps with the same return contract.
+- **Learning recommender** — feud history lives in `feud_questions` /
+  `feud_responses`; rank future recommendations from what's been used/skipped.
+- **DB types** — regenerate `src/lib/types.ts` via
+  `supabase gen types typescript`.
