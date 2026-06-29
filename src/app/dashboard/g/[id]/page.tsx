@@ -6,7 +6,7 @@ import { memberInvite, captainInvite, joinLink } from "@/lib/invites";
 import { InviteCard } from "@/components/InviteCard";
 import { CopyButton } from "@/components/CopyButton";
 import { RosterEditor } from "@/components/RosterEditor";
-import { addMember } from "./actions";
+import { addMember, generateTriviaBank } from "./actions";
 import { startGame } from "@/app/play/actions";
 import type { Group, Member, Team } from "@/lib/types";
 
@@ -136,19 +136,26 @@ export default async function GroupPage({
           <section className="card p-5">
             <h2 className="font-display text-lg font-bold">Build the game</h2>
             <p className="mt-1 text-sm text-cream/55">
-              Author the feud questions your crew answers about each other (trivia topics next).
+              Author feud questions; captains pick trivia topics from their phones, then generate
+              the bank.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <Link
                 href={`/dashboard/g/${group.id}/questions`}
                 className="btn btn-secondary text-sm"
               >
                 ✏️ Feud questions
               </Link>
-              <span className="btn btn-ghost cursor-not-allowed text-sm opacity-50">
-                📚 Trivia topics · up next
-              </span>
+              <form action={generateTriviaBank}>
+                <input type="hidden" name="groupId" value={group.id} />
+                <button type="submit" className="btn btn-ghost text-sm">
+                  ⚡ Generate trivia bank
+                </button>
+              </form>
             </div>
+            <p className="mt-2 text-xs text-cream/45">
+              {topicCount ?? 0} topics chosen · {triviaCount ?? 0} trivia questions in the bank
+            </p>
           </section>
 
           {/* roster by team */}

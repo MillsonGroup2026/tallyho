@@ -100,6 +100,21 @@ export async function getMemberTasks(code: string, memberId: string) {
   const allForMember = (questions ?? []).filter((q) => q.id !== holdout);
   const toAnswer = allForMember.filter((q) => !answeredSet.has(q.id));
 
+  let captain: { teamId: string; teamName: string; selected: string[] } | null = null;
+  if (ctx.member.is_captain && ctx.member.team_id) {
+    const { data: sel } = await supabase
+      .from("trivia_topics")
+      .select("name")
+      .eq("team_id", ctx.member.team_id)
+      .eq("selected", true);
+    const team = ctx.teams.find((t) => t.id === ctx.member.team_id);
+    captain = {
+      teamId: ctx.member.team_id,
+      teamName: team?.name ?? "your team",
+      selected: (sel ?? []).map((s) => s.name),
+    };
+  }
+
   return {
     groupName: ctx.group.name,
     member: {
@@ -113,5 +128,6 @@ export async function getMemberTasks(code: string, memberId: string) {
     answeredCount: allForMember.length - toAnswer.length,
     totalForMember: allForMember.length,
     holdoutAssigned: Boolean(holdout),
+    captain,
   };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Wordmark } from "@/components/Wordmark";
+import { TOPIC_CATALOG } from "@/lib/trivia/topics";
 
 interface MemberLite {
   id: string;
@@ -22,6 +23,7 @@ interface Tasks {
   answeredCount: number;
   totalForMember: number;
   holdoutAssigned: boolean;
+  captain: { teamId: string; teamName: string; selected: string[] } | null;
 }
 
 type Phase = "code" | "identify" | "tasks";
@@ -35,6 +37,7 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
   const [tasks, setTasks] = useState<Tasks | null>(null);
   const [idx, setIdx] = useState(0);
   const [text, setText] = useState("");
+  const [topicsDone, setTopicsDone] = useState(false);
   const didAuto = useRef(false);
 
   useEffect(() => {
@@ -108,6 +111,26 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
     }
   }
 
+  async function submitTopics(selected: string[]) {
+    if (!tasks?.captain) return;
+    setBusy(true);
+    try {
+      await fetch("/api/join/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          memberId: tasks.member.id,
+          teamId: tasks.captain.teamId,
+          topics: selected,
+        }),
+      });
+      setTopicsDone(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="flex flex-1 items-center justify-center px-5 py-10">
       <div className="w-full max-w-md">
@@ -168,7 +191,18 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
         )}
 
         {/* TASKS */}
-        {phase === "tasks" && tasks && <TaskView tasks={tasks} idx={idx} text={text} setText={setText} busy={busy} onAnswer={answer} />}
+        {phase === "tasks" && tasks && (
+          <TaskView
+            tasks={tasks}
+            idx={idx}
+            text={text}
+            setText={setText}
+            busy={busy}
+            onAnswer={answer}
+            topicsDone={topicsDone}
+            onSubmitTopics={submitTopics}
+          />
+        )}
       </div>
     </main>
   );
@@ -181,6 +215,8 @@ function TaskView({
   setText,
   busy,
   onAnswer,
+  topicsDone,
+  onSubmitTopics,
 }: {
   tasks: Tasks;
   idx: number;
@@ -188,40 +224,45 @@ function TaskView({
   setText: (v: string) => void;
   busy: boolean;
   onAnswer: (v: string) => void;
+  topicsDone: boolean;
+  onSubmitTopics: (selected: string[]) => void;
 }) {
-  const done = idx >= tasks.toAnswer.length;
+  const feudDone = idx >= tasks.toAnswer.length;
+  const isCaptain = Boolean(tasks.member.isCaptain && tasks.captain);
 
-  if (tasks.totalForMember === 0) {
-    return (
-      <div className="card p-7 text-center">
-        <div className="text-5xl">⏳</div>
-        <h1 className="mt-3 font-display text-2xl font-bold">Hey {tasks.member.name}!</h1>
-        <p className="mt-2 text-sm text-cream/60">
-          No questions are ready yet. Check back once your host has set them up.
-        </p>
-        {tasks.member.isCaptain && (
-          <p className="mt-3 rounded-lg bg-gold/10 px-3 py-2 text-xs text-gold">
-            🎖️ You&apos;re a captain — topic picking opens here soon.
+  if (feudDone) {
+    // Captains pick their team's trivia topics after answering.
+    if (isCaptain && !topicsDone) {
+      return (
+        <TopicPicker
+          captain={tasks.captain!}
+          memberName={tasks.member.name}
+          busy={busy}
+          onSubmit={onSubmitTopics}
+        />
+      );
+    }
+    if (tasks.totalForMember === 0 && !isCaptain) {
+      return (
+        <div className="card p-7 text-center">
+          <div className="text-5xl">⏳</div>
+          <h1 className="mt-3 font-display text-2xl font-bold">Hey {tasks.member.name}!</h1>
+          <p className="mt-2 text-sm text-cream/60">
+            No questions are ready yet. Check back once your host has set them up.
           </p>
-        )}
-      </div>
-    );
-  }
-
-  if (done) {
+        </div>
+      );
+    }
     return (
       <div className="card p-7 text-center">
         <div className="animate-pop text-6xl">🎉</div>
         <h1 className="mt-3 font-display text-2xl font-bold">All set, {tasks.member.name}!</h1>
         <p className="mt-2 text-sm text-cream/60">
-          You answered {tasks.totalForMember} question{tasks.totalForMember === 1 ? "" : "s"}. Your
-          host will take it from here.
+          {tasks.totalForMember > 0
+            ? `You answered ${tasks.totalForMember} question${tasks.totalForMember === 1 ? "" : "s"}.`
+            : "You're all squared away."}{" "}
+          Your host takes it from here.
         </p>
-        {tasks.member.isCaptain && (
-          <p className="mt-3 rounded-lg bg-gold/10 px-3 py-2 text-xs text-gold">
-            🎖️ Captain bonus: trivia topic picking opens here soon.
-          </p>
-        )}
       </div>
     );
   }
@@ -292,6 +333,78 @@ function TaskView({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function TopicPicker({
+  captain,
+  memberName,
+  busy,
+  onSubmit,
+}: {
+  captain: { teamId: string; teamName: string; selected: string[] };
+  memberName: string;
+  busy: boolean;
+  onSubmit: (selected: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>(captain.selected.slice(0, 5));
+
+  function toggle(topic: string) {
+    setSelected((s) =>
+      s.includes(topic) ? s.filter((t) => t !== topic) : s.length < 5 ? [...s, topic] : s,
+    );
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="text-center">
+        <div className="text-3xl">🎖️</div>
+        <h1 className="mt-1 font-display text-xl font-bold">Captain {memberName}, pick 5 topics</h1>
+        <p className="text-sm text-cream/60">
+          {captain.teamName} gets trivia from these.
+        </p>
+        <p className="mt-1 text-xs text-cream/45">{selected.length}/5 selected</p>
+      </div>
+
+      <div className="mt-4 max-h-[50vh] space-y-4 overflow-y-auto pr-1">
+        {TOPIC_CATALOG.map((cat) => (
+          <div key={cat.category}>
+            <div className="label mb-1">{cat.category}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {cat.topics.map((t) => {
+                const on = selected.includes(t);
+                const full = selected.length >= 5 && !on;
+                return (
+                  <button
+                    key={t}
+                    onClick={() => toggle(t)}
+                    disabled={full}
+                    className={
+                      "rounded-full border px-2.5 py-1 text-xs font-semibold transition " +
+                      (on
+                        ? "border-magenta bg-magenta/20 text-cream"
+                        : full
+                          ? "border-white/5 text-cream/25"
+                          : "border-white/15 bg-white/5 text-cream/70 hover:border-cyan")
+                    }
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => onSubmit(selected)}
+        disabled={busy || selected.length !== 5}
+        className="btn btn-primary mt-4 w-full"
+      >
+        {busy ? "Saving…" : `Lock in ${selected.length}/5 topics`}
+      </button>
     </div>
   );
 }
