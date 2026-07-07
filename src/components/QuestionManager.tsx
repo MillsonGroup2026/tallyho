@@ -82,7 +82,7 @@ export function QuestionManager({
           <form action={addRecommended}>
             <input type="hidden" name="groupId" value={groupId} />
             <button type="submit" className="btn btn-secondary text-sm" disabled={pending}>
-              ✨ Add recommended set
+              ✨ Suggest questions
             </button>
           </form>
           <button onClick={() => { setAdding(true); setEditingId(null); }} className="btn btn-primary text-sm">
@@ -189,15 +189,26 @@ function QuestionForm({
         placeholder="Who in the group is most likely to…?"
         maxLength={200}
       />
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={type} onChange={(e) => changeType(e.target.value as FeudQuestionType)} className="input w-auto">
+      <div>
+        <div className="label mb-1">Answer type</div>
+        <div className="flex flex-wrap gap-1.5">
           {(Object.keys(TYPE_META) as FeudQuestionType[]).map((t) => (
-            <option key={t} value={t}>
+            <button
+              key={t}
+              type="button"
+              onClick={() => changeType(t)}
+              className={
+                "rounded-lg border px-3 py-1.5 text-xs font-semibold transition " +
+                (type === t
+                  ? "border-magenta bg-magenta/20 text-cream"
+                  : "border-white/15 bg-white/5 text-cream/70 hover:border-cyan hover:text-cream")
+              }
+            >
               {TYPE_META[t].label}
-            </option>
+            </button>
           ))}
-        </select>
-        <span className="text-xs text-cream/45">{meta.hint}</span>
+        </div>
+        <p className="mt-1.5 text-xs text-cream/45">{meta.hint}</p>
       </div>
 
       {meta.hasOptions && (

@@ -14,14 +14,15 @@ interface Question {
   prompt: string;
   type: string;
   options: string[] | null;
+  answer: string | null;
 }
 interface Tasks {
   groupName: string;
   member: { id: string; name: string; isCaptain: boolean; teamId: string | null };
   roster: { id: string; name: string }[];
-  toAnswer: Question[];
+  questions: Question[];
   answeredCount: number;
-  totalForMember: number;
+  total: number;
   holdoutAssigned: boolean;
   captain: { teamId: string; teamName: string; selected: string[] } | null;
 }
@@ -35,9 +36,6 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState<{ groupName: string; members: MemberLite[] } | null>(null);
   const [tasks, setTasks] = useState<Tasks | null>(null);
-  const [idx, setIdx] = useState(0);
-  const [text, setText] = useState("");
-  const [topicsDone, setTopicsDone] = useState(false);
   const didAuto = useRef(false);
 
   useEffect(() => {
@@ -86,49 +84,15 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
         return;
       }
       setTasks(data);
-      setIdx(0);
       setPhase("tasks");
     } finally {
       setBusy(false);
     }
   }
 
-  async function answer(value: string) {
-    if (!tasks) return;
-    const q = tasks.toAnswer[idx];
-    if (!q || !value.trim()) return;
-    setBusy(true);
-    try {
-      await fetch("/api/join/answer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, memberId: tasks.member.id, questionId: q.id, answer: value }),
-      });
-      setText("");
-      setIdx((i) => i + 1);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitTopics(selected: string[]) {
-    if (!tasks?.captain) return;
-    setBusy(true);
-    try {
-      await fetch("/api/join/topics", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code,
-          memberId: tasks.member.id,
-          teamId: tasks.captain.teamId,
-          topics: selected,
-        }),
-      });
-      setTopicsDone(true);
-    } finally {
-      setBusy(false);
-    }
+  function switchUser() {
+    setTasks(null);
+    setPhase("identify");
   }
 
   return (
@@ -144,7 +108,6 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
           </p>
         )}
 
-        {/* CODE */}
         {phase === "code" && (
           <div className="card p-6 text-center">
             <h1 className="font-display text-2xl font-bold">Join your group</h1>
@@ -168,7 +131,6 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
           </div>
         )}
 
-        {/* IDENTIFY */}
         {phase === "identify" && group && (
           <div className="card p-6">
             <p className="text-center text-sm text-cream/60">You&apos;re joining</p>
@@ -180,7 +142,7 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
                   key={m.id}
                   onClick={() => pickMe(m.id)}
                   disabled={busy}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold transition hover:border-magenta hover:bg-magenta/10 disabled:opacity-50"
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold transition hover:border-magenta hover:bg-magenta/10 hover:text-cream disabled:opacity-50"
                 >
                   {m.name}
                   {m.isCaptain && <span className="ml-1">🎖️</span>}
@@ -190,113 +152,176 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
           </div>
         )}
 
-        {/* TASKS */}
         {phase === "tasks" && tasks && (
-          <TaskView
-            tasks={tasks}
-            idx={idx}
-            text={text}
-            setText={setText}
-            busy={busy}
-            onAnswer={answer}
-            topicsDone={topicsDone}
-            onSubmitTopics={submitTopics}
-          />
+          <TaskFlow code={code} tasks={tasks} onSwitchUser={switchUser} />
         )}
       </div>
     </main>
   );
 }
 
-function TaskView({
-  tasks,
-  idx,
-  text,
-  setText,
-  busy,
-  onAnswer,
-  topicsDone,
-  onSubmitTopics,
+function OptionButton({
+  label,
+  selected,
+  onClick,
+  disabled,
+  wide,
 }: {
-  tasks: Tasks;
-  idx: number;
-  text: string;
-  setText: (v: string) => void;
-  busy: boolean;
-  onAnswer: (v: string) => void;
-  topicsDone: boolean;
-  onSubmitTopics: (selected: string[]) => void;
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  wide?: boolean;
 }) {
-  const feudDone = idx >= tasks.toAnswer.length;
-  const isCaptain = Boolean(tasks.member.isCaptain && tasks.captain);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        "rounded-xl border px-3 py-3 text-sm font-semibold transition disabled:opacity-60 " +
+        (wide ? "w-full text-left " : "") +
+        (selected
+          ? "border-magenta bg-magenta/25 text-cream ring-1 ring-magenta"
+          : "border-white/15 bg-white/5 text-cream/80 hover:border-magenta hover:bg-magenta/10 hover:text-cream")
+      }
+    >
+      {selected && <span className="mr-1">✓</span>}
+      {label}
+    </button>
+  );
+}
 
-  if (feudDone) {
-    // Captains pick their team's trivia topics after answering.
-    if (isCaptain && !topicsDone) {
-      return (
-        <TopicPicker
-          captain={tasks.captain!}
-          memberName={tasks.member.name}
-          busy={busy}
-          onSubmit={onSubmitTopics}
-        />
-      );
+function TaskFlow({
+  code,
+  tasks,
+  onSwitchUser,
+}: {
+  code: string;
+  tasks: Tasks;
+  onSwitchUser: () => void;
+}) {
+  const total = tasks.questions.length;
+  const [answers, setAnswers] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const q of tasks.questions) if (q.answer != null) init[q.id] = q.answer;
+    return init;
+  });
+  const [idx, setIdx] = useState(() => {
+    const firstUn = tasks.questions.findIndex((q) => q.answer == null);
+    return firstUn === -1 ? 0 : firstUn;
+  });
+  const [step, setStep] = useState<"feud" | "topics" | "done">(
+    total === 0 ? (tasks.captain ? "topics" : "done") : "feud",
+  );
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState(answers[tasks.questions[0]?.id] ?? "");
+
+  const q = tasks.questions[idx];
+  const answeredCount = Object.keys(answers).length;
+
+  useEffect(() => {
+    setText(answers[q?.id] ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx]);
+
+  async function saveAnswer(qid: string, value: string) {
+    if (!value.trim()) return;
+    setAnswers((a) => ({ ...a, [qid]: value }));
+    setBusy(true);
+    try {
+      await fetch("/api/join/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, memberId: tasks.member.id, questionId: qid, answer: value }),
+      });
+    } finally {
+      setBusy(false);
     }
-    if (tasks.totalForMember === 0 && !isCaptain) {
-      return (
-        <div className="card p-7 text-center">
-          <div className="text-5xl">⏳</div>
-          <h1 className="mt-3 font-display text-2xl font-bold">Hey {tasks.member.name}!</h1>
-          <p className="mt-2 text-sm text-cream/60">
-            No questions are ready yet. Check back once your host has set them up.
-          </p>
-        </div>
-      );
-    }
+  }
+
+  function goNext() {
+    if (q?.type === "open_text" && text.trim()) saveAnswer(q.id, text);
+    if (idx < total - 1) setIdx(idx + 1);
+    else setStep(tasks.captain ? "topics" : "done");
+  }
+
+  if (step === "topics" && tasks.captain) {
+    return (
+      <TopicPicker
+        code={code}
+        memberId={tasks.member.id}
+        captain={tasks.captain}
+        memberName={tasks.member.name}
+        onBack={total > 0 ? () => { setStep("feud"); setIdx(total - 1); } : undefined}
+        onDone={() => setStep("done")}
+      />
+    );
+  }
+
+  if (step === "done" || total === 0) {
+    const allAnswered = answeredCount >= total;
     return (
       <div className="card p-7 text-center">
-        <div className="animate-pop text-6xl">🎉</div>
-        <h1 className="mt-3 font-display text-2xl font-bold">All set, {tasks.member.name}!</h1>
+        <div className="animate-pop text-6xl">{allAnswered ? "🎉" : "👍"}</div>
+        <h1 className="mt-3 font-display text-2xl font-bold">
+          {allAnswered ? `All set, ${tasks.member.name}!` : `Thanks, ${tasks.member.name}!`}
+        </h1>
         <p className="mt-2 text-sm text-cream/60">
-          {tasks.totalForMember > 0
-            ? `You answered ${tasks.totalForMember} question${tasks.totalForMember === 1 ? "" : "s"}.`
+          {total > 0
+            ? `You answered ${answeredCount} of ${total}.`
             : "You're all squared away."}{" "}
           Your host takes it from here.
         </p>
+        {tasks.captain && (
+          <p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-xs text-gold">
+            🎖️ Captain topics locked in for {tasks.captain.teamName}.
+          </p>
+        )}
+        <div className="mt-5 flex justify-center gap-2">
+          {total > 0 && (
+            <button onClick={() => { setStep("feud"); setIdx(0); }} className="btn btn-ghost text-sm">
+              Review answers
+            </button>
+          )}
+          <button onClick={onSwitchUser} className="btn btn-ghost text-sm">
+            I&apos;m someone else
+          </button>
+        </div>
       </div>
     );
   }
 
-  const q = tasks.toAnswer[idx];
-  const total = tasks.totalForMember;
-  const current = tasks.answeredCount + idx + 1;
-
+  const selected = answers[q.id];
   return (
     <div className="card p-6">
-      <div className="flex items-center justify-between text-xs text-cream/50">
-        <span>
-          Question {current} of {total}
-        </span>
-        <span>{tasks.member.name}</span>
+      <div className="flex items-center justify-between text-xs">
+        <button onClick={onSwitchUser} className="text-cream/50 hover:text-cream">
+          ← Not {tasks.member.name}?
+        </button>
+        <span className="text-cream/50">{answeredCount}/{total} answered</span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-        <div className="h-full rounded-full bg-magenta transition-all" style={{ width: `${(current - 1) / total * 100}%` }} />
+        <div
+          className="h-full rounded-full bg-magenta transition-all"
+          style={{ width: `${total ? (answeredCount / total) * 100 : 0}%` }}
+        />
       </div>
 
-      <h2 className="mt-5 font-display text-xl font-bold leading-snug">{q.prompt}</h2>
+      <div className="mt-4 text-xs text-cream/45">Question {idx + 1} of {total}</div>
+      <h2 className="mt-1 font-display text-xl font-bold leading-snug">{q.prompt}</h2>
 
-      <div className="mt-5">
+      <div className="mt-4">
         {q.type === "pick_person" && (
           <div className="grid grid-cols-2 gap-2">
             {tasks.roster.map((m) => (
-              <button
+              <OptionButton
                 key={m.id}
-                onClick={() => onAnswer(m.name)}
+                label={m.name}
+                selected={selected === m.name}
+                onClick={() => saveAnswer(q.id, m.name)}
                 disabled={busy}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold transition hover:border-magenta hover:bg-magenta/10 disabled:opacity-50"
-              >
-                {m.name}
-              </button>
+              />
             ))}
           </div>
         )}
@@ -304,89 +329,127 @@ function TaskView({
         {(q.type === "multiple_choice" || q.type === "likelihood") && (
           <div className="space-y-2">
             {(q.options ?? []).map((o) => (
-              <button
+              <OptionButton
                 key={o}
-                onClick={() => onAnswer(o)}
+                label={o}
+                selected={selected === o}
+                onClick={() => saveAnswer(q.id, o)}
                 disabled={busy}
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-semibold transition hover:border-cyan hover:bg-cyan/10 disabled:opacity-50"
-              >
-                {o}
-              </button>
+                wide
+              />
             ))}
           </div>
         )}
 
         {q.type === "open_text" && (
-          <div className="flex gap-2">
-            <input
-              autoFocus
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onAnswer(text)}
-              placeholder="Type your answer…"
-              maxLength={80}
-              className="input"
-            />
-            <button onClick={() => onAnswer(text)} disabled={busy || !text.trim()} className="btn btn-primary">
-              →
-            </button>
-          </div>
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => text.trim() && saveAnswer(q.id, text)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && text.trim()) {
+                saveAnswer(q.id, text);
+                goNext();
+              }
+            }}
+            placeholder="Type your answer…"
+            maxLength={80}
+            className="input"
+          />
         )}
+      </div>
+
+      <div className="mt-6 flex items-center justify-between gap-2">
+        <button
+          onClick={() => setIdx((i) => Math.max(0, i - 1))}
+          disabled={idx === 0}
+          className="btn btn-ghost disabled:opacity-40"
+        >
+          ← Previous
+        </button>
+        <button onClick={goNext} className="btn btn-primary">
+          {idx < total - 1 ? "Next →" : tasks.captain ? "On to topics →" : "Finish →"}
+        </button>
       </div>
     </div>
   );
 }
 
 function TopicPicker({
+  code,
+  memberId,
   captain,
   memberName,
-  busy,
-  onSubmit,
+  onBack,
+  onDone,
 }: {
+  code: string;
+  memberId: string;
   captain: { teamId: string; teamName: string; selected: string[] };
   memberName: string;
-  busy: boolean;
-  onSubmit: (selected: string[]) => void;
+  onBack?: () => void;
+  onDone: () => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(captain.selected.slice(0, 5));
+  const [picks, setPicks] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const cat of TOPIC_CATALOG) {
+      const found = cat.topics.find((t) => captain.selected.includes(t));
+      if (found) init[cat.category] = found;
+    }
+    return init;
+  });
+  const [busy, setBusy] = useState(false);
+  const chosen = Object.values(picks);
+  const complete = TOPIC_CATALOG.every((c) => picks[c.category]);
 
-  function toggle(topic: string) {
-    setSelected((s) =>
-      s.includes(topic) ? s.filter((t) => t !== topic) : s.length < 5 ? [...s, topic] : s,
-    );
+  async function submit() {
+    setBusy(true);
+    try {
+      await fetch("/api/join/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, memberId, teamId: captain.teamId, topics: chosen }),
+      });
+      onDone();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="card p-5">
       <div className="text-center">
         <div className="text-3xl">🎖️</div>
-        <h1 className="mt-1 font-display text-xl font-bold">Captain {memberName}, pick 5 topics</h1>
+        <h1 className="mt-1 font-display text-xl font-bold">Captain {memberName}</h1>
         <p className="text-sm text-cream/60">
-          {captain.teamName} gets trivia from these.
+          Pick <b className="text-cream">one topic per category</b> for {captain.teamName}.
         </p>
-        <p className="mt-1 text-xs text-cream/45">{selected.length}/5 selected</p>
+        <p className="mt-1 text-xs text-cream/45">
+          {chosen.length}/{TOPIC_CATALOG.length} categories
+        </p>
       </div>
 
-      <div className="mt-4 max-h-[50vh] space-y-4 overflow-y-auto pr-1">
+      <div className="mt-4 max-h-[52vh] space-y-4 overflow-y-auto pr-1">
         {TOPIC_CATALOG.map((cat) => (
           <div key={cat.category}>
-            <div className="label mb-1">{cat.category}</div>
+            <div className="label mb-1 flex items-center gap-2">
+              {cat.category}
+              {picks[cat.category] && <span className="text-green">✓</span>}
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {cat.topics.map((t) => {
-                const on = selected.includes(t);
-                const full = selected.length >= 5 && !on;
+                const on = picks[cat.category] === t;
                 return (
                   <button
                     key={t}
-                    onClick={() => toggle(t)}
-                    disabled={full}
+                    type="button"
+                    onClick={() => setPicks((p) => ({ ...p, [cat.category]: t }))}
                     className={
                       "rounded-full border px-2.5 py-1 text-xs font-semibold transition " +
                       (on
-                        ? "border-magenta bg-magenta/20 text-cream"
-                        : full
-                          ? "border-white/5 text-cream/25"
-                          : "border-white/15 bg-white/5 text-cream/70 hover:border-cyan")
+                        ? "border-magenta bg-magenta/25 text-cream"
+                        : "border-white/15 bg-white/5 text-cream/70 hover:border-cyan hover:text-cream")
                     }
                   >
                     {t}
@@ -398,13 +461,16 @@ function TopicPicker({
         ))}
       </div>
 
-      <button
-        onClick={() => onSubmit(selected)}
-        disabled={busy || selected.length !== 5}
-        className="btn btn-primary mt-4 w-full"
-      >
-        {busy ? "Saving…" : `Lock in ${selected.length}/5 topics`}
-      </button>
+      <div className="mt-4 flex gap-2">
+        {onBack && (
+          <button onClick={onBack} className="btn btn-ghost text-sm">
+            ← Back
+          </button>
+        )}
+        <button onClick={submit} disabled={busy || !complete} className="btn btn-primary flex-1">
+          {busy ? "Saving…" : complete ? "Lock in topics" : `Pick ${TOPIC_CATALOG.length - chosen.length} more`}
+        </button>
+      </div>
     </div>
   );
 }

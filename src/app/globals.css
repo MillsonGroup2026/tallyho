@@ -39,6 +39,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Native <select> options render on a light OS popup — force readable dark
+   text so every option is visible (not light-on-light). */
+option {
+  color: #0b1026;
+  background: #ffffff;
+}
+
 /* ---------------------------------------------------------------- animations */
 @keyframes pop {
   0% { transform: scale(0.7); opacity: 0; }

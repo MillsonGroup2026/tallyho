@@ -60,17 +60,51 @@ export default async function GroupPage({
   const members = (memberData ?? []) as Member[];
   const teams = (teamData ?? []) as Team[];
 
-  const captainsSet = teams.length > 0 && teams.every((t) => t.captain_member_id);
   const link = joinLink(group, appUrl());
   const hostReady = (assignCount ?? 0) > 0 && (triviaCount ?? 0) > 0;
 
-  const readiness = [
-    { label: `Roster (${members.length} players)`, done: members.length >= 2, soon: false },
-    { label: "Teams & captains assigned", done: captainsSet, soon: false },
-    { label: "Captains picked trivia topics", done: (topicCount ?? 0) > 0, soon: (topicCount ?? 0) === 0 },
-    { label: "Members filled out feud questions", done: (assignCount ?? 0) > 0, soon: (assignCount ?? 0) === 0 },
-    { label: "Trivia bank generated", done: (triviaCount ?? 0) > 0, soon: (triviaCount ?? 0) === 0 },
+  // Per-member fill-out progress (answered vs their assigned total = all minus holdout).
+  const { data: qRows } = await supabase.from("feud_questions").select("id").eq("group_id", id);
+  const totalQuestions = (qRows ?? []).length;
+  const qIds = (qRows ?? []).map((q) => q.id);
+  const answeredByMember = new Map<string, number>();
+  const holdoutMembers = new Set<string>();
+  if (qIds.length) {
+    const [{ data: resp }, { data: asg }] = await Promise.all([
+      supabase.from("feud_responses").select("member_id").in("question_id", qIds),
+      supabase.from("feud_question_assignments").select("member_id").eq("group_id", id),
+    ]);
+    for (const r of resp ?? []) answeredByMember.set(r.member_id, (answeredByMember.get(r.member_id) ?? 0) + 1);
+    for (const a of asg ?? []) holdoutMembers.add(a.member_id);
+  }
+  const memberProgress = members.map((m) => {
+    const answered = answeredByMember.get(m.id) ?? 0;
+    const target = Math.max(0, totalQuestions - (holdoutMembers.has(m.id) ? 1 : 0));
+    const status =
+      totalQuestions === 0
+        ? "waiting"
+        : answered >= target && target > 0
+          ? "done"
+          : answered > 0
+            ? "progress"
+            : "notstarted";
+    return { id: m.id, name: m.display_name, answered, target, status };
+  });
+  const doneCount = memberProgress.filter((p) => p.status === "done").length;
+
+  const steps = [
+    { n: 1, label: "Add feud questions", done: totalQuestions > 0, detail: `${totalQuestions} authored` },
+    {
+      n: 2,
+      label: "Members answer their questions",
+      done: members.length > 0 && doneCount >= members.length,
+      detail: `${doneCount}/${members.length} finished`,
+    },
+    { n: 3, label: "Captains pick trivia topics", done: (topicCount ?? 0) > 0, detail: `${topicCount ?? 0} chosen` },
+    { n: 4, label: "Generate the trivia bank", done: (triviaCount ?? 0) > 0, detail: `${triviaCount ?? 0} questions` },
+    { n: 5, label: "Host the live game", done: false, detail: hostReady ? "ready to host!" : "" },
   ];
+  const nextStepN = steps.find((s) => !s.done)?.n ?? 5;
 
   return (
     <div>
@@ -108,28 +142,83 @@ export default async function GroupPage({
       <div className="mt-8 grid gap-6 lg:grid-cols-3">
         {/* left: readiness + roster */}
         <div className="space-y-6 lg:col-span-2">
-          {/* readiness */}
+          {/* path to game night */}
           <section className="card p-5">
-            <h2 className="font-display text-lg font-bold">Readiness</h2>
-            <ul className="mt-3 space-y-2">
-              {readiness.map((r) => (
-                <li key={r.label} className="flex items-center gap-3 text-sm">
-                  <span
+            <h2 className="font-display text-lg font-bold">Path to game night</h2>
+            <p className="mt-1 text-sm text-cream/55">
+              Do these in order — the highlighted one is what&apos;s next.
+            </p>
+            <ol className="mt-3 space-y-1.5">
+              {steps.map((s) => {
+                const isNext = s.n === nextStepN;
+                return (
+                  <li
+                    key={s.n}
                     className={
-                      r.done
-                        ? "text-green"
-                        : r.soon
-                          ? "text-cream/30"
-                          : "text-magenta-soft"
+                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm " +
+                      (isNext ? "bg-magenta/10 ring-1 ring-magenta/40" : "")
                     }
                   >
-                    {r.done ? "✓" : r.soon ? "○" : "○"}
-                  </span>
-                  <span className={r.done ? "text-cream" : "text-cream/60"}>{r.label}</span>
-                  {r.soon && <span className="chip cursor-default ml-auto text-xs">up next</span>}
-                </li>
-              ))}
-            </ul>
+                    <span
+                      className={
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold " +
+                        (s.done
+                          ? "bg-green/20 text-green"
+                          : isNext
+                            ? "bg-magenta text-white"
+                            : "bg-white/8 text-cream/40")
+                      }
+                    >
+                      {s.done ? "✓" : s.n}
+                    </span>
+                    <span className={s.done || isNext ? "text-cream" : "text-cream/55"}>{s.label}</span>
+                    <span className="ml-auto text-xs text-cream/45">{s.detail}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+
+          {/* fill-out progress */}
+          <section className="card p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-lg font-bold">Who&apos;s filled out</h2>
+              <span className="text-sm text-cream/50">
+                {doneCount}/{members.length} done
+              </span>
+            </div>
+            {totalQuestions === 0 ? (
+              <p className="mt-2 text-sm text-cream/55">
+                Add feud questions first, then invite everyone — progress shows up here.
+              </p>
+            ) : (
+              <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                {memberProgress.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm"
+                  >
+                    <span className="truncate">{p.name}</span>
+                    <span
+                      className={
+                        "chip cursor-default text-xs " +
+                        (p.status === "done"
+                          ? "border-green/40 text-green"
+                          : p.status === "progress"
+                            ? "border-gold/40 text-gold"
+                            : "border-white/15 text-cream/45")
+                      }
+                    >
+                      {p.status === "done"
+                        ? "✓ done"
+                        : p.status === "progress"
+                          ? `${p.answered}/${p.target}`
+                          : "not started"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           {/* setup tasks */}

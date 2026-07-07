@@ -39,18 +39,30 @@ export async function getMemberTasks(code: string, memberId: string) {
   const supabase = createSupabaseAdminClient();
 
   const holdout = await ensureMemberHoldout(supabase, ctx.group.id, memberId);
-  const [{ data: questions }, { data: answered }] = await Promise.all([
+  const [{ data: questions }, { data: responses }] = await Promise.all([
     supabase
       .from("feud_questions")
       .select("id, prompt, type, options")
       .eq("group_id", ctx.group.id)
       .order("created_at"),
-    supabase.from("feud_responses").select("question_id").eq("member_id", memberId),
+    supabase.from("feud_responses").select("question_id, raw_answer").eq("member_id", memberId),
   ]);
 
-  const answeredSet = new Set((answered ?? []).map((a) => a.question_id));
-  const allForMember = (questions ?? []).filter((q) => q.id !== holdout);
-  const toAnswer = allForMember.filter((q) => !answeredSet.has(q.id));
+  const answerByQ = new Map<string, string>();
+  for (const r of responses ?? []) answerByQ.set(r.question_id, r.raw_answer);
+
+  // Every question except this member's holdout, with their existing answer (if
+  // any) so the fill-out UI can show/edit it and navigate freely.
+  const allForMember = (questions ?? [])
+    .filter((q) => q.id !== holdout)
+    .map((q) => ({
+      id: q.id,
+      prompt: q.prompt,
+      type: q.type,
+      options: q.options,
+      answer: answerByQ.get(q.id) ?? null,
+    }));
+  const answeredCount = allForMember.filter((q) => q.answer !== null).length;
 
   let captain: { teamId: string; teamName: string; selected: string[] } | null = null;
   if (ctx.member.is_captain && ctx.member.team_id) {
@@ -76,9 +88,9 @@ export async function getMemberTasks(code: string, memberId: string) {
       teamId: ctx.member.team_id,
     },
     roster: ctx.members.map((m) => ({ id: m.id, name: m.display_name })),
-    toAnswer,
-    answeredCount: allForMember.length - toAnswer.length,
-    totalForMember: allForMember.length,
+    questions: allForMember,
+    answeredCount,
+    total: allForMember.length,
     holdoutAssigned: Boolean(holdout),
     captain,
   };

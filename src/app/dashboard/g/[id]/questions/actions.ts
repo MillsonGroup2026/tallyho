@@ -87,17 +87,19 @@ export async function addRecommended(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) return;
 
-  const [{ data: group }, { data: members }] = await Promise.all([
+  const [{ data: group }, { data: members }, { data: existing }] = await Promise.all([
     supabase.from("groups").select("name, dynamic_note").eq("id", groupId).single(),
     supabase.from("members").select("display_name").eq("group_id", groupId),
+    supabase.from("feud_questions").select("prompt").eq("group_id", groupId),
   ]);
   const memberNames = (members ?? []).map((m) => m.display_name);
+  const existingSet = new Set((existing ?? []).map((e) => e.prompt.trim().toLowerCase()));
   const count = recommendedCount(memberNames.length);
 
   let recs = recommendFeudQuestions({
     groupName: group?.name ?? "the group",
     memberNames,
-    count,
+    count: count + existingSet.size, // overshoot so we net new ones after dedupe
   });
 
   let aiUsed = false;
@@ -108,7 +110,8 @@ export async function addRecommended(formData: FormData) {
       system:
         "You write fun, varied 'Family Feud'-style party questions about a specific friend group. Bias toward pick-a-person and multiple-choice for clean tallies. Return JSON only.",
       prompt: `Group "${group?.name}". Good to know: ${group?.dynamic_note || "n/a"}. Members: ${memberNames.join(", ")}.
-Return exactly ${count} questions as JSON: {"questions":[{"prompt":string,"type":"pick_person"|"likelihood"|"multiple_choice"|"open_text","options"?:string[]}]}.
+Return exactly ${count} NEW questions as JSON: {"questions":[{"prompt":string,"type":"pick_person"|"likelihood"|"multiple_choice"|"open_text","options"?:string[]}]}.
+Do NOT repeat any of these existing questions: ${[...existingSet].slice(0, 40).join(" | ") || "(none yet)"}.
 For pick_person and open_text omit options. For multiple_choice give 4 options. For likelihood give a 4-point scale.`,
       maxTokens: 2000,
     });
@@ -123,6 +126,13 @@ For pick_person and open_text omit options. For multiple_choice give 4 options. 
       }));
       aiUsed = true;
     }
+  }
+
+  // Only add questions we don't already have (so "suggest more" adds fresh ones).
+  recs = recs.filter((r) => !existingSet.has(r.prompt.trim().toLowerCase())).slice(0, count);
+  if (recs.length === 0) {
+    revalidate(groupId);
+    return;
   }
 
   await supabase.from("feud_questions").insert(

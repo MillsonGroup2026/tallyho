@@ -15,9 +15,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "not captain of this team" }, { status: 403 });
   }
 
-  const names = (topics as unknown[])
-    .filter((t): t is string => typeof t === "string")
-    .slice(0, 5);
+  // Enforce one topic per category (last pick wins per category).
+  const byCategory = new Map<string, string>();
+  for (const t of topics as unknown[]) {
+    if (typeof t !== "string") continue;
+    const cat = CATEGORY_OF_TOPIC[t];
+    if (cat) byCategory.set(cat, t);
+  }
+  const names = [...byCategory.values()];
 
   const supabase = createSupabaseAdminClient();
   // Replace this team's topic selection.
