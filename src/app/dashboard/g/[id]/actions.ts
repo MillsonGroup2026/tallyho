@@ -7,6 +7,7 @@ import { buildStarterBank } from "@/lib/trivia/generate";
 import { tallyBuckets } from "@/lib/feud";
 import { calibrationConstant, averageTopBucket } from "@/lib/scoring";
 import { generateJSON, hasAI } from "@/lib/ai/anthropic";
+import { ensureAllHoldouts } from "@/lib/holdouts";
 
 /**
  * Add a member to an existing group at any time (including after others have
@@ -199,6 +200,10 @@ export async function generateTriviaBank(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) return;
 
+  // Generating the bank is the admin's "prepare to host" step — make sure every
+  // member has a fresh holdout assigned while we're here.
+  await ensureAllHoldouts(supabase, groupId);
+
   const [{ data: teams }, { data: members }, { data: selected }] = await Promise.all([
     supabase.from("teams").select("id, name").eq("group_id", groupId).order("team_index"),
     supabase.from("members").select("id, team_id").eq("group_id", groupId),
@@ -238,9 +243,18 @@ export async function generateTriviaBank(formData: FormData) {
   }
 
   await supabase.from("trivia_questions").delete().eq("group_id", groupId);
-  await supabase
-    .from("trivia_questions")
-    .insert(rows.map((r) => ({ ...r, group_id: groupId, round_no: 1 })));
+  await supabase.from("trivia_questions").insert(
+    rows.map((r) => ({
+      group_id: groupId,
+      team_id: r.teamId,
+      topic: r.topic,
+      prompt: r.prompt,
+      correct_answer: r.correct_answer,
+      accepted_variants: r.accepted_variants,
+      point_value: r.point_value,
+      round_no: 1,
+    })),
+  );
   await supabase.from("groups").update({ calibration_constant: constant }).eq("id", groupId);
   revalidatePath(`/dashboard/g/${groupId}`);
 }

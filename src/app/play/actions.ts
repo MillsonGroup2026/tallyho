@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { tallyBuckets, scoreFeudGuess } from "@/lib/feud";
 import { fuzzyMatch } from "@/lib/match";
+import { ensureAllHoldouts } from "@/lib/holdouts";
 import type { Member, Team, VoteBucket } from "@/lib/types";
 
 const DEFAULT_SETTINGS = { feudSeconds: 25, triviaSeconds: 210 };
@@ -65,6 +66,9 @@ export async function startGame(formData: FormData) {
 
   const { data: group } = await supabase.from("groups").select("*").eq("id", groupId).single();
   if (!group) redirect("/dashboard");
+
+  // Guarantee every member has a fresh holdout before building the turn queue.
+  await ensureAllHoldouts(supabase, groupId);
 
   const [{ data: teamData }, { data: memberData }, { data: assignmentData }] = await Promise.all([
     supabase.from("teams").select("*").eq("group_id", groupId).order("team_index"),
