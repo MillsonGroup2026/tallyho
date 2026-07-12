@@ -92,6 +92,25 @@ export default async function GroupPage({
   });
   const doneCount = memberProgress.filter((p) => p.status === "done").length;
 
+  // Trivia bank view: each team's chosen topics + generated questions (with answers).
+  const [{ data: triviaTopicRows }, { data: triviaQRows }] = await Promise.all([
+    supabase
+      .from("trivia_topics")
+      .select("team_id, name, category")
+      .eq("group_id", id)
+      .eq("selected", true),
+    supabase
+      .from("trivia_questions")
+      .select("team_id, topic, prompt, correct_answer, point_value")
+      .eq("group_id", id)
+      .order("created_at"),
+  ]);
+  const triviaView = teams.map((t) => ({
+    team: t,
+    topics: (triviaTopicRows ?? []).filter((x) => x.team_id === t.id),
+    questions: (triviaQRows ?? []).filter((x) => x.team_id === t.id),
+  }));
+
   const steps = [
     { n: 1, label: "Add feud questions", done: totalQuestions > 0, detail: `${totalQuestions} authored` },
     {
@@ -246,6 +265,45 @@ export default async function GroupPage({
               {topicCount ?? 0} topics chosen · {triviaCount ?? 0} trivia questions in the bank
             </p>
           </section>
+
+          {/* trivia bank view */}
+          {(triviaCount ?? 0) > 0 && (
+            <section className="card p-5">
+              <h2 className="font-display text-lg font-bold">Trivia bank</h2>
+              <p className="mt-1 text-sm text-cream/55">
+                What each team will face. Too hard or easy? Re-run &ldquo;Generate trivia
+                bank&rdquo; for a fresh set.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {triviaView.map(({ team, topics, questions }) => (
+                  <div key={team.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <h3 className="font-display font-bold">{team.name}</h3>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {topics.map((t) => (
+                        <span key={t.name} className="chip cursor-default text-xs">
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                    <ul className="mt-3 space-y-2 text-sm">
+                      {questions.map((q, i) => (
+                        <li
+                          key={i}
+                          className="border-t border-white/8 pt-2 first:border-0 first:pt-0"
+                        >
+                          <div className="text-xs text-cream/45">
+                            {q.topic} · {q.point_value} pts
+                          </div>
+                          <div className="text-cream/90">{q.prompt}</div>
+                          <div className="mt-0.5 text-xs text-green">✓ {q.correct_answer}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* roster by team */}
           <section className="card p-5">

@@ -79,3 +79,54 @@ export async function ensureAllHoldouts(supabase: SupabaseClient, groupId: strin
     await ensureMemberHoldout(supabase, groupId, m.id);
   }
 }
+
+/**
+ * For a new round: clear existing holdouts and assign each member a DIFFERENT
+ * question than last round (unanswering it so it plays fresh). Best-effort if
+ * there aren't enough questions to fully rotate.
+ */
+export async function reassignHoldoutsNewRound(
+  supabase: SupabaseClient,
+  groupId: string,
+): Promise<void> {
+  const { data: prev } = await supabase
+    .from("feud_question_assignments")
+    .select("member_id, question_id")
+    .eq("group_id", groupId);
+  const prevBy = new Map<string, string>((prev ?? []).map((a) => [a.member_id, a.question_id]));
+  await supabase.from("feud_question_assignments").delete().eq("group_id", groupId);
+
+  const [{ data: members }, { data: questions }] = await Promise.all([
+    supabase.from("members").select("id").eq("group_id", groupId).order("created_at"),
+    supabase.from("feud_questions").select("id").eq("group_id", groupId).order("created_at"),
+  ]);
+  const qIds = (questions ?? []).map((q: { id: string }) => q.id);
+  const held = new Set<string>();
+
+  for (const m of members ?? []) {
+    const { data: answered } = await supabase
+      .from("feud_responses")
+      .select("question_id")
+      .eq("member_id", m.id);
+    const answeredSet = new Set((answered ?? []).map((a: { question_id: string }) => a.question_id));
+    const prevH = prevBy.get(m.id);
+    // Prefer a different-from-last question they answered (so unanswering it
+    // makes it fresh); then any different un-held question; then anything.
+    const candidate =
+      qIds.find((q) => !held.has(q) && q !== prevH && answeredSet.has(q)) ??
+      qIds.find((q) => !held.has(q) && q !== prevH) ??
+      qIds.find((q) => !held.has(q));
+    if (!candidate) continue;
+    held.add(candidate);
+    await supabase
+      .from("feud_question_assignments")
+      .insert({ group_id: groupId, question_id: candidate, member_id: m.id });
+    if (answeredSet.has(candidate)) {
+      await supabase
+        .from("feud_responses")
+        .delete()
+        .eq("member_id", m.id)
+        .eq("question_id", candidate);
+    }
+  }
+}

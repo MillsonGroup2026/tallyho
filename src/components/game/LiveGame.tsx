@@ -12,6 +12,7 @@ import {
   setGameStatus,
   setGameTimers,
   adjustScore,
+  startNextRound,
   type GameTurn,
   type FeudResult,
   type TriviaResult,
@@ -670,9 +671,20 @@ function GameOver({
           </div>
         ))}
       </div>
-      <a href={`/dashboard/g/${groupId}`} className="btn btn-primary mt-8">
-        Back to group
-      </a>
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <form action={startNextRound}>
+          <input type="hidden" name="groupId" value={groupId} />
+          <button type="submit" className="btn btn-primary">
+            🔄 Play another round
+          </button>
+        </form>
+        <a href={`/dashboard/g/${groupId}`} className="btn btn-ghost">
+          Back to group
+        </a>
+      </div>
+      <p className="mt-3 text-xs text-cream/40">
+        Another round reshuffles feud questions and generates fresh trivia.
+      </p>
     </div>
   );
 }

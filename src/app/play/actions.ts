@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { tallyBuckets, scoreFeudGuess } from "@/lib/feud";
 import { fuzzyMatch } from "@/lib/match";
-import { ensureAllHoldouts } from "@/lib/holdouts";
+import { ensureAllHoldouts, reassignHoldoutsNewRound } from "@/lib/holdouts";
+import { regenerateTriviaBank } from "@/lib/trivia/regenerate";
 import type { Member, Team, VoteBucket } from "@/lib/types";
 
 const DEFAULT_SETTINGS = { feudSeconds: 25, triviaSeconds: 210 };
@@ -52,24 +53,13 @@ async function addPoints(
   }
 }
 
-/** Create a game, build the interleaved turn queue, and jump to the play view. */
-export async function startGame(formData: FormData) {
-  const groupId = String(formData.get("groupId") || "");
-  const numRounds = Math.max(1, Math.min(5, Number(formData.get("rounds") || 1)));
-  if (!groupId) redirect("/dashboard");
-
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { data: group } = await supabase.from("groups").select("*").eq("id", groupId).single();
-  if (!group) redirect("/dashboard");
-
-  // Guarantee every member has a fresh holdout before building the turn queue.
-  await ensureAllHoldouts(supabase, groupId);
-
+/** Build the interleaved turn queue and create a game row. Returns the new game
+ *  id, or null if there was nothing to play. */
+async function createGameForGroup(
+  supabase: SupabaseClient,
+  groupId: string,
+  numRounds: number,
+): Promise<string | null> {
   const [{ data: teamData }, { data: memberData }, { data: assignmentData }] = await Promise.all([
     supabase.from("teams").select("*").eq("group_id", groupId).order("team_index"),
     supabase.from("members").select("*").eq("group_id", groupId).order("created_at"),
@@ -109,7 +99,7 @@ export async function startGame(formData: FormData) {
       }
     }
   }
-  if (queue.length === 0) redirect(`/dashboard/g/${groupId}`);
+  if (queue.length === 0) return null;
 
   const settings = {
     feudSeconds: DEFAULT_SETTINGS.feudSeconds,
@@ -132,14 +122,51 @@ export async function startGame(formData: FormData) {
     })
     .select("id")
     .single();
-  if (error || !gameRow) redirect(`/dashboard/g/${groupId}`);
+  if (error || !gameRow) return null;
 
   await supabase
     .from("game_scores")
     .insert(teams.map((t) => ({ game_id: gameRow.id, team_id: t.id, points: 0 })));
   await supabase.from("groups").update({ status: "live" }).eq("id", groupId);
+  return gameRow.id as string;
+}
 
-  redirect(`/play/${gameRow.id}`);
+/** Create a game, build the interleaved turn queue, and jump to the play view. */
+export async function startGame(formData: FormData) {
+  const groupId = String(formData.get("groupId") || "");
+  const numRounds = Math.max(1, Math.min(5, Number(formData.get("rounds") || 1)));
+  if (!groupId) redirect("/dashboard");
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Guarantee every member has a fresh holdout before building the turn queue.
+  await ensureAllHoldouts(supabase, groupId);
+  const gameId = await createGameForGroup(supabase, groupId, numRounds);
+  if (!gameId) redirect(`/dashboard/g/${groupId}`);
+  redirect(`/play/${gameId}`);
+}
+
+/** Start another round: give everyone a DIFFERENT feud question and a fresh
+ *  trivia bank, then spin up a new game. */
+export async function startNextRound(formData: FormData) {
+  const groupId = String(formData.get("groupId") || "");
+  if (!groupId) redirect("/dashboard");
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  await reassignHoldoutsNewRound(supabase, groupId);
+  await regenerateTriviaBank(supabase, groupId);
+  const gameId = await createGameForGroup(supabase, groupId, 1);
+  if (!gameId) redirect(`/dashboard/g/${groupId}`);
+  redirect(`/play/${gameId}`);
 }
 
 /** Tally the group's answers, fuzzy-match the guess, score it, and persist. */
