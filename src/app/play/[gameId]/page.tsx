@@ -54,6 +54,12 @@ export default async function PlayPage({ params }: { params: Promise<{ gameId: s
     });
   }
 
+  const topicsByTeam: Record<string, string[]> = {};
+  for (const t of trivia ?? []) {
+    (topicsByTeam[t.team_id] ??= []);
+    if (!topicsByTeam[t.team_id].includes(t.topic)) topicsByTeam[t.team_id].push(t.topic);
+  }
+
   const initialScores: Record<string, number> = {};
   for (const t of teams ?? []) initialScores[t.id] = 0;
   for (const s of scoreRows ?? []) initialScores[s.team_id] = s.points;
@@ -73,6 +79,7 @@ export default async function PlayPage({ params }: { params: Promise<{ gameId: s
     cursor,
     feudQuestions,
     triviaByTeam,
+    topicsByTeam,
   };
 
   return <LiveGame {...payload} />;

@@ -155,6 +155,15 @@ export function JoinFlow({ initialCode }: { initialCode?: string }) {
         {phase === "tasks" && tasks && (
           <TaskFlow code={code} tasks={tasks} onSwitchUser={switchUser} />
         )}
+
+        {phase !== "tasks" && (
+          <p className="mt-6 text-center text-xs text-cream/40">
+            Are you the host?{" "}
+            <a href="/login" className="text-cyan hover:underline">
+              Sign in to manage your groups →
+            </a>
+          </p>
+        )}
       </div>
     </main>
   );

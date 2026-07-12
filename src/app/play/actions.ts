@@ -252,3 +252,22 @@ export async function setGameTimers(input: {
     .update({ settings: { feudSeconds: input.feudSeconds, triviaSeconds: input.triviaSeconds } })
     .eq("id", input.gameId);
 }
+
+/** Adjust a team's running score by a delta — used for host overrides on the
+ *  reveal screens (fixing a fuzzy-match dispute, marking trivia right/wrong). */
+export async function adjustScore(input: { gameId: string; teamId: string; delta: number }) {
+  if (!input.delta) return;
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("game_scores")
+    .select("id, points")
+    .eq("game_id", input.gameId)
+    .eq("team_id", input.teamId)
+    .single();
+  if (data) {
+    await supabase
+      .from("game_scores")
+      .update({ points: Math.max(0, data.points + input.delta) })
+      .eq("id", data.id);
+  }
+}

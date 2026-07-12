@@ -34,7 +34,7 @@ export default function Home() {
             Join a game
           </Link>
           <Link href="/login" className="btn btn-primary text-sm">
-            Start a game
+            Host sign in
           </Link>
         </nav>
       </header>

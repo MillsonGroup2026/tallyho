@@ -11,6 +11,7 @@ import {
   persistTurn,
   setGameStatus,
   setGameTimers,
+  adjustScore,
   type GameTurn,
   type FeudResult,
   type TriviaResult,
@@ -44,9 +45,10 @@ export interface LiveGamePayload {
   cursor: number;
   feudQuestions: Record<string, FeudQ>;
   triviaByTeam: Record<string, TriviaQ[]>;
+  topicsByTeam: Record<string, string[]>;
 }
 
-type Phase = "intro" | "feud" | "feudReveal" | "trivia" | "triviaReveal" | "over";
+type Phase = "preGame" | "intro" | "feud" | "feudReveal" | "trivia" | "triviaReveal" | "over";
 
 const TEAM_ACCENT = ["text-magenta", "text-cyan", "text-gold", "text-green"];
 const TEAM_BG = ["bg-magenta", "bg-cyan", "bg-gold", "bg-green"];
@@ -54,7 +56,7 @@ const TEAM_BG = ["bg-magenta", "bg-cyan", "bg-gold", "bg-green"];
 export function LiveGame(p: LiveGamePayload) {
   const router = useRouter();
   const [cursor, setCursor] = useState(p.cursor);
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<Phase>(p.cursor === 0 ? "preGame" : "intro");
   const [scores, setScores] = useState<Record<string, number>>(p.initialScores);
   const [pending, setPending] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -189,6 +191,24 @@ export function LiveGame(p: LiveGamePayload) {
     await setGameTimers({ gameId: p.gameId, feudSeconds: f, triviaSeconds: t });
   }
 
+  // Host overrides on the reveal screens (fix a fuzzy-match dispute, etc.).
+  async function overrideFeud(bucketLabel: string, bucketCount: number) {
+    if (!turn || !feudRes) return;
+    const delta = bucketCount - feudRes.points;
+    setFeudRes({ ...feudRes, matched: bucketLabel, points: bucketCount });
+    setScores((s) => ({ ...s, [turn.teamId]: Math.max(0, (s[turn.teamId] ?? 0) + delta) }));
+    await adjustScore({ gameId: p.gameId, teamId: turn.teamId, delta });
+  }
+
+  async function overrideTrivia(makeCorrect: boolean) {
+    if (!turn || !triviaRes || !currentTrivia) return;
+    const target = makeCorrect ? currentTrivia.point_value : 0;
+    const delta = target - triviaRes.points;
+    setTriviaRes({ ...triviaRes, correct: makeCorrect, points: target });
+    setScores((s) => ({ ...s, [turn.teamId]: Math.max(0, (s[turn.teamId] ?? 0) + delta) }));
+    await adjustScore({ gameId: p.gameId, teamId: turn.teamId, delta });
+  }
+
   // --- render --------------------------------------------------------------
   return (
     <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-4">
@@ -225,6 +245,40 @@ export function LiveGame(p: LiveGamePayload) {
                 Resume ▶
               </button>
             </div>
+          </div>
+        )}
+
+        {/* PRE-GAME: show each team's trivia topics */}
+        {phase === "preGame" && (
+          <div className="w-full max-w-2xl text-center">
+            <div className="text-5xl">📋</div>
+            <h2 className="mt-3 font-display text-4xl font-black">Tonight&apos;s trivia</h2>
+            <p className="mt-1 text-cream/60">
+              What each team drew. (Feud questions stay a surprise!)
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {p.teams.map((t) => (
+                <div key={t.id} className="card p-4 text-left">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("h-2.5 w-2.5 rounded-full", TEAM_BG[t.index % TEAM_BG.length])} />
+                    <span className="font-display font-bold">{t.name}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(p.topicsByTeam[t.id] ?? []).map((topic) => (
+                      <span key={topic} className="chip cursor-default text-xs">
+                        {topic}
+                      </span>
+                    ))}
+                    {(p.topicsByTeam[t.id] ?? []).length === 0 && (
+                      <span className="text-xs text-cream/40">No topics yet</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setPhase("intro")} className="btn btn-primary mt-8 text-lg">
+              Start the game →
+            </button>
           </div>
         )}
 
@@ -270,8 +324,10 @@ export function LiveGame(p: LiveGamePayload) {
         {phase === "feudReveal" && turn && (
           <FeudRevealPanel
             groupName={p.groupName}
+            guess={guess}
             result={feudRes}
             pending={pending}
+            onOverride={overrideFeud}
             onContinue={continueToTrivia}
           />
         )}
@@ -301,7 +357,14 @@ export function LiveGame(p: LiveGamePayload) {
 
         {/* TRIVIA REVEAL */}
         {phase === "triviaReveal" && (
-          <TriviaRevealPanel result={triviaRes} pending={pending} onNext={nextTurn} last={cursor + 1 >= total} />
+          <TriviaRevealPanel
+            answer={answer}
+            result={triviaRes}
+            pending={pending}
+            onOverride={overrideTrivia}
+            onNext={nextTurn}
+            last={cursor + 1 >= total}
+          />
         )}
 
         {/* OVER */}
@@ -428,29 +491,55 @@ function TimerRing({ seconds, total }: { seconds: number; total: number }) {
 
 function FeudRevealPanel({
   groupName,
+  guess,
   result,
   pending,
+  onOverride,
   onContinue,
 }: {
   groupName: string;
+  guess: string;
   result: FeudResult | null;
   pending: boolean;
+  onOverride: (label: string, count: number) => void;
   onContinue: () => void;
 }) {
-  const total = result ? result.buckets.reduce((s, b) => s + b.count, 0) : 0;
-  const bucket = result?.points ?? 0;
-  const taglineBucket = bucket === 0 ? "feudMiss" : bucket >= 3 ? "feudBigHit" : "feudSmallHit";
+  if (!result) {
+    return (
+      <div className="text-center">
+        <SaysReveal groupName={groupName} size="lg" />
+        <p className="mt-6 animate-pulse text-cream/60">Tallying the votes…</p>
+      </div>
+    );
+  }
+  const total = result.buckets.reduce((s, b) => s + b.count, 0);
+  const points = result.points;
+  const taglineBucket = points === 0 ? "feudMiss" : points >= 3 ? "feudBigHit" : "feudSmallHit";
   return (
     <div className="w-full max-w-2xl text-center">
       <SaysReveal groupName={groupName} size="lg" />
-      <div className="mt-6 space-y-2">
-        {(result?.buckets ?? []).map((b) => {
-          const matched = result?.matched?.toLowerCase() === b.label.toLowerCase();
+      <p className="mt-3 text-sm text-cream/55">
+        Guessed <span className="font-semibold text-cream">“{guess || "—"}”</span>
+        {result.matched ? (
+          <>
+            {" "}
+            → matched <span className="font-semibold text-gold">{result.matched}</span>
+          </>
+        ) : (
+          <> → no match</>
+        )}
+      </p>
+      <div className="mt-4 space-y-2">
+        {result.buckets.map((b) => {
+          const matched = result.matched?.toLowerCase() === b.label.toLowerCase();
           return (
-            <div
+            <button
               key={b.label}
+              onClick={() => onOverride(b.label, b.count)}
+              disabled={pending}
+              title="Tap to award this answer (host override)"
               className={cn(
-                "animate-flip-in relative overflow-hidden rounded-xl border px-4 py-3 text-left",
+                "animate-flip-in relative w-full overflow-hidden rounded-xl border px-4 py-3 text-left transition hover:border-gold/70",
                 matched ? "border-gold bg-gold/10" : "border-white/10 bg-white/5",
               )}
             >
@@ -462,25 +551,24 @@ function FeudRevealPanel({
                 <span className="font-semibold">{b.label}</span>
                 <span className="font-display text-xl font-black">{b.count}</span>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
-      {result && (
-        <div className="mt-6">
-          <div className="font-display text-2xl font-bold">
-            {bucket > 0 ? (
-              <>
-                <span className="text-shimmer-gold">+{bucket}</span> points!
-              </>
-            ) : (
-              <span className="text-cream/70">No match — 0 points</span>
-            )}
-          </div>
-          <p className="mt-1 text-cream/60">{pickTagline(taglineBucket, total)}</p>
+      <div className="mt-5">
+        <div className="font-display text-2xl font-bold">
+          {points > 0 ? (
+            <>
+              <span className="text-shimmer-gold">+{points}</span> points!
+            </>
+          ) : (
+            <span className="text-cream/70">No match — 0 points</span>
+          )}
         </div>
-      )}
-      <button onClick={onContinue} disabled={pending} className="btn btn-secondary mt-7 text-lg">
+        <p className="mt-1 text-cream/60">{pickTagline(taglineBucket, total)}</p>
+        <p className="mt-1 text-xs text-cream/40">Wrong match? Tap the answer they meant.</p>
+      </div>
+      <button onClick={onContinue} disabled={pending} className="btn btn-secondary mt-6 text-lg">
         On to trivia →
       </button>
     </div>
@@ -488,41 +576,61 @@ function FeudRevealPanel({
 }
 
 function TriviaRevealPanel({
+  answer,
   result,
   pending,
+  onOverride,
   onNext,
   last,
 }: {
+  answer: string;
   result: TriviaResult | null;
   pending: boolean;
+  onOverride: (correct: boolean) => void;
   onNext: () => void;
   last: boolean;
 }) {
-  const correct = result?.correct ?? false;
+  if (!result) {
+    return (
+      <div className="text-center">
+        <div className="animate-pulse text-6xl">⏳</div>
+        <p className="mt-3 text-cream/60">Checking the answer…</p>
+      </div>
+    );
+  }
+  const correct = result.correct;
   return (
     <div className="text-center">
       <div className="text-7xl">{correct ? "✅" : "❌"}</div>
       <h2 className={cn("mt-4 font-display text-4xl font-black", correct ? "text-green" : "text-magenta")}>
         {correct ? "Correct!" : "Not quite"}
       </h2>
-      {result && !correct && (
-        <p className="mt-2 text-cream/70">
-          Answer: <span className="font-semibold text-cream">{result.correctAnswer}</span>
-        </p>
-      )}
-      {result && (
-        <div className="mt-4 font-display text-2xl font-bold">
-          {result.points > 0 ? (
-            <span className="text-shimmer-gold">+{result.points} points</span>
-          ) : (
-            <span className="text-cream/60">+0 points</span>
-          )}
-        </div>
-      )}
+      <p className="mt-2 text-sm text-cream/55">
+        They said <span className="font-semibold text-cream">“{answer || "—"}”</span>
+      </p>
+      <p className="mt-1 text-cream/80">
+        Correct answer: <span className="font-semibold text-cream">{result.correctAnswer}</span>
+      </p>
+      <div className="mt-4 font-display text-2xl font-bold">
+        {result.points > 0 ? (
+          <span className="text-shimmer-gold">+{result.points} points</span>
+        ) : (
+          <span className="text-cream/60">+0 points</span>
+        )}
+      </div>
       <p className="mt-1 text-cream/60">{pickTagline(correct ? "triviaRight" : "triviaWrong")}</p>
-      <button onClick={onNext} disabled={pending} className="btn btn-primary mt-7 text-lg">
-        {last ? "See final scores 🏆" : "Next turn →"}
+      <button
+        onClick={() => onOverride(!correct)}
+        disabled={pending}
+        className="mt-3 text-xs text-cream/45 underline hover:text-cream"
+      >
+        {correct ? "Mark it wrong instead" : "Actually correct — give the points"}
       </button>
+      <div className="mt-4">
+        <button onClick={onNext} disabled={pending} className="btn btn-primary text-lg">
+          {last ? "See final scores 🏆" : "Next turn →"}
+        </button>
+      </div>
     </div>
   );
 }
