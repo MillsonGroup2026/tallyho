@@ -1,0 +1,23 @@
+<svg viewBox="0 0 814 624" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF2E88"/><stop offset="1" stop-color="#C026D3"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141A36"/><stop offset="1" stop-color="#0B1026"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(257,70) scale(0.5859375)">
+  <path d="M158 350 L128 452 L250 358 Z" fill="url(#mag)"/>
+  <rect x="52" y="56" width="408" height="300" rx="90" fill="url(#mag)"/>
+  <rect x="181" y="150" width="22" height="150" rx="11" fill="#FBF7EF"/><rect x="219" y="150" width="22" height="150" rx="11" fill="#FBF7EF"/><rect x="257" y="150" width="22" height="150" rx="11" fill="#FBF7EF"/><rect x="295" y="150" width="22" height="150" rx="11" fill="#FBF7EF"/>
+  <line x1="164" y1="306" x2="344" y2="144" stroke="#FFC53D" stroke-width="27" stroke-linecap="round"/>
+  <path d="M398 92 l11 27 27 11 -27 11 -11 27 -11 -27 -27 -11 27 -11 Z" fill="#FFC53D"/></g>
+  
+  <text x="64.4" y="478.0" font-family="Outfit" font-weight="900" font-size="150" fill="#FBF7EF" >Tally</text>
+  <rect x="436.1" y="355.0" width="313.5" height="159.0" rx="39.0" fill="url(#mag)"/>
+  <path d="M487.1 511.0 l-15.0 39.0 l51.0 -33.0 Z" fill="url(#mag)"/>
+  <text x="481.1" y="478.0" font-family="Outfit" font-weight="900" font-size="150" fill="#FBF7EF" >ho!</text>
+  <text x="407.0" y="566.0" font-family="Outfit" font-weight="900" font-size="32" fill="#0B1026" text-anchor="middle" letter-spacing="7" opacity="0.9">ROUND UP YOUR CREW</text>
+</svg>
